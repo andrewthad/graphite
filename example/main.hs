@@ -20,7 +20,7 @@ main = mainWith $
     square 4
   ) |||
   ( axisY 16 ["1","2","3","4","5"] ||| build myGraphB funcData) |||
-  ( build myGraphC funcDataGender
+  ( build myGraphD funcDataGender
     ===
     axisX 16 (map show allGenders)
     ===
@@ -51,6 +51,9 @@ myGraphB = id
 
 myGraphC :: Graphite '[Gender] Int
 myGraphC = intervals 16 allGenders $ bar fromIntegral 4.0 (fc blue)
+
+myGraphD :: Graphite '[Gender] Int
+myGraphD = lineGraph fromIntegral 16.0 allGenders (fc blue)
 
 funcDataGender :: Rec Identity '[Gender] -> Int
 funcDataGender (Identity gender :& RNil) = case gender of

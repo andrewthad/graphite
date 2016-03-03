@@ -38,6 +38,13 @@ modifyGraphiteWith combine vals (Graphite g) = Graphite $ \getData ->
 bar :: (a -> Double) -> Double -> (Diagram B -> Diagram B) -> Graphite '[] a
 bar f width mods = Graphite (\g -> rect width (f (g RNil)) & mods)
 
+lineGraph :: (a -> Double) -> Double -> [r] -> (Diagram B -> Diagram B) -> Graphite '[r] a
+lineGraph f spacing vals mods = Graphite $ \g -> id
+  $ fromVertices
+  $ map (\(x,y) -> P $ V2 x y)
+  $ zip (enumFromThen 0 spacing)
+  $ flip map vals $ \val -> f (g (Identity val :& RNil))
+
 -- The numeric argument refers to the amount of space
 -- between each bar.
 grouped :: Double -> [r] -> Graphite rs a -> Graphite (r ': rs) a
