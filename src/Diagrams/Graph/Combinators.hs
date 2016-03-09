@@ -34,7 +34,7 @@ createXAxis :: Double -> Double -> [res] -> (res -> String) -> (Diagram B -> Dia
 createXAxis segmentHeight intervalWidth vals toLabel editLine = resVals
   where 
   resVals = alignTL $ hsep intervalWidth $ flip map vals $ \res -> 
-    besideText unitY (toLabel res) (verticalLine segmentHeight # editLine # alignB)
+    besideText unit_Y (toLabel res) (verticalLine segmentHeight # editLine # alignB)
 
 horizontalLine :: Double -> Diagram B
 horizontalLine w = fromOffsets [scaleX w unitX]
