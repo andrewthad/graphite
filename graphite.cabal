@@ -15,7 +15,10 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
-  exposed-modules:     Lib, StackedBarGraph
+  exposed-modules:     
+      Graphite.Combinators
+    , Graphite.Types
+    , Diagrams.Graph.Combinators
   build-depends:       
       base >= 4.7 && < 5
     , lucid

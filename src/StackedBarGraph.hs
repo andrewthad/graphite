@@ -14,6 +14,7 @@ import           Data.Foldable                 (foldl')
 import           Data.Functor.Identity
 import           Data.Maybe
 import           Data.Vinyl.Core
+import           Data.Vinyl.Lens
 import           Diagrams.Backend.SVG
 import           Diagrams.Prelude              hiding ((:&))
 import           Lucid.Base                    (renderText)
@@ -21,17 +22,6 @@ import           Prelude
 import           Safe.Foldable
 import           Text.Blaze.Html               (Html, preEscapedToHtml)
 
--- Things we need:
--- Rec Grande rs
--- Rec [] rs
--- (Rec Identity rs -> Double)
--- newtype Grande a = Grande (a -> Diagram B -> Diagram B)
-
--- type family Head xs where
---   Head (x ': xs) = x
---
--- type family Tail xs where
---   Tail (x ': xs) = xs
 
 newtype Graphite b r rs a = Graphite
   { runGraphite
@@ -41,6 +31,10 @@ newtype Graphite b r rs a = Graphite
     -> r
     -> b
   }
+
+graphiteCast :: (rs :~: ss) => proxy rs -> proxy ss -> Graphite b r rs a -> Graphite b r ss a
+graphiteCast _ _ (Graphite g) = Graphite $ \fromVal getVal rsRec r ->
+  g fromVal (getVal . rcast) (rcast rsRec) r
 
 -- modifyGraphite :: ([Diagram B] -> Diagram B) -> [r] -> Graphite rs a -> Graphite (r ': rs) a
 -- modifyGraphite combine vals (Graphite g) = Graphite $ \getData ->
@@ -55,6 +49,76 @@ single f = Graphite (\fromVal getVal RNil r -> f r (getVal RNil))
 
 gvalue :: Graphite Double r '[] a
 gvalue = Graphite (\fromVal getVal RNil _ -> fromVal (getVal RNil))
+
+-- figureAt :: Graphite (Double, Diagram B) r '[] a
+-- figureAt = Graphite (\fromVal getVal RNil _ -> (fromVal (getVal RNil), hexagon 1.0))
+
+figureAt :: (a -> r -> Diagram B) -> Graphite (Double, Diagram B) r '[] a
+figureAt f = Graphite $ \fromVal getVal RNil r -> let v = getVal RNil in
+  (fromVal v, f v r)
+
+basicConnectedFigures ::
+     (s -> r -> a -> Diagram B)
+  -> (s -> Int -> Int -> Diagram B -> Diagram B)
+  -> Graphite (Diagram B) s '[r] a
+basicConnectedFigures makeMarker connectMarker = Graphite $ \fromVal getVal (rVals :& RNil) s ->
+  let nums = take (length rVals) [0,1..] :: [Int]
+      spacing = 100.0 / fromIntegral (length rVals - 1) :: Double
+  in id
+    $ localize
+    $ applyAll (flip map (zip nums (drop 1 nums)) $ \(n1,n2) -> connectMarker s n1 n2)
+    $ position
+    $ flip map (zip nums rVals)
+    $ \(i, r) -> let a = getVal (Identity r :& RNil) in
+        (P $ V2 (spacing * fromIntegral i) (fromVal a), makeMarker s r a & named i)
+
+xAxisFromZero :: HorizontalDirection -> (r -> String)
+              -> Graphite (Diagram B) s (r ': rs) a
+              -> Graphite (Diagram B) s (r ': rs) a
+xAxisFromZero dir makeLabel (Graphite g) = Graphite $ \fromVal getVal (rVals :& rsNext) s -> let
+  spacing = 100.0 / fromIntegral (length rVals - 1) :: Double
+  translateDir = case dir of
+    HorizontalLeft -> id
+    HorizontalRight -> translateX (-100.0) -- ((-spacing) * fromIntegral (length rVals - 1))
+  in translateDir $ mconcat
+      [ g fromVal getVal (rVals :& rsNext) s
+      , axisX2 spacing (map makeLabel rVals)
+      ]
+
+yAxisFromZero :: HorizontalDirection -> Int -> a -> (a -> Int -> a) -> (a -> String) -> Graphite (Diagram B) s rs a -> Graphite (Diagram B) s rs a
+yAxisFromZero dir numSegments aInterval mult valToString (Graphite g) = Graphite $ \fromVal getVal rsNext s ->
+  mconcat
+    [ g fromVal getVal rsNext s
+    , axisY2 dir (fromVal $ mult aInterval 1) (map (\i -> valToString (mult aInterval i)) (enumFromTo 0 numSegments))
+    ]
+
+data HorizontalDirection = HorizontalLeft | HorizontalRight
+
+axisY2 :: HorizontalDirection -> Double -> [String] -> Diagram B
+axisY2 dir interval strs =
+  fromOffsets [scaleY (interval * fromIntegral (length strs - 1)) unitY]
+  |||.
+  atPoints (intervalPointsFromZeroY interval (length strs))
+    (map (\str -> fromOffsets [unitDir] === alignedText 0 0.5 str # fontSizeL 2) strs)
+  where
+  (|||.) = beside (-unitDir)
+  unitDir = case dir of
+    HorizontalLeft -> unitX
+    HorizontalRight -> unit_X
+
+intervalPointsFromZeroY :: Double -> Int -> [Point V2 Double]
+intervalPointsFromZeroY spacing n = fromOffsets $ replicate n (scaleY spacing unitY)
+
+axisX2 :: Double -> [String] -> Diagram B
+axisX2 interval strs =
+  fromOffsets [scaleX (interval * fromIntegral (length strs - 1)) unitX]
+  ===
+  atPoints (intervalPointsFromZero interval (length strs))
+    (map (\str -> fromOffsets [unitY] === alignedText 0.5 1.0 str # fontSizeL 2) strs)
+
+intervalPointsFromZero :: Double -> Int -> [Point V2 Double]
+intervalPointsFromZero spacing n =
+  (fromOffsets $ replicate n (scaleX spacing unitX))
 
 bar :: Double -> Graphite (Diagram B) r '[] a
 bar width = Graphite (\fromVal getVal RNil _ -> rect width (fromVal (getVal RNil)))
@@ -76,6 +140,30 @@ paddedBy spacing f (Graphite g) = Graphite $ \fromVal getVal (vals :& valsNext) 
   hsep spacing $ flip map vals $ \r ->
     f $ g fromVal (curryRecFunc getVal (Identity r)) valsNext r
 
+connectedFigures :: Double -> Graphite (Double,Diagram B) r rs a -> Graphite (Diagram B) s (r ': rs) a
+connectedFigures spacing (Graphite g) = Graphite $ \fromVal getVal (vals :& valsNext) s -> let
+  nums = take (length vals) [0,1..] :: [Int]
+  in id
+    $ localize
+    $ applyAll (flip map (zip nums (drop 1 nums)) $ \(n1,n2) -> connect n1 n2)
+    $ position
+    $ flip map (zip nums vals)
+    $ \(i :: Int,r) -> let (y,diag) = g fromVal (curryRecFunc getVal (Identity r)) valsNext r in
+          (P $ V2 (spacing * fromIntegral i) y, diag & named i)
+
+connectedFiguresMany :: Double -> Graphite (Double,Diagram B) r rs a -> Graphite (Diagram B) t (s ': r ': rs) a
+connectedFiguresMany spacing (Graphite g) = Graphite $ \fromVal getVal (sVals :& rVals :& valsNext) t -> let
+  nums = take (length sVals) [0,1..] :: [Int]
+  in id
+    $ mconcat
+    $ flip map rVals
+    $ \r -> localize
+    $ applyAll (flip map (zip nums (drop 1 nums)) $ \(n1,n2) -> connect n1 n2)
+    $ position
+    $ flip map (zip nums sVals)
+    $ \(i :: Int,s) -> let (y,diag) = g fromVal (curryRecFunc (curryRecFunc getVal (Identity s)) (Identity r)) valsNext r in
+          (P $ V2 (spacing * fromIntegral i) y, diag & named i)
+
 connected :: Double -> Graphite Double r rs a -> Graphite (Diagram B) s (r ': rs) a
 connected spacing (Graphite g) = Graphite $ \fromVal getVal (vals :& valsNext) s -> id
   $ fromVertices
@@ -88,164 +176,6 @@ overlapped :: Graphite (Diagram B) r rs a -> Graphite (Diagram B) s (r ': rs) a
 overlapped (Graphite g) = Graphite $ \fromVal getVal (vals :& valsNext) s ->
   mconcat $ flip map vals $ \r -> g fromVal (curryRecFunc getVal (Identity r)) valsNext r
 
--- consConcat :: ([m] -> Diagram B) -> Graphite m r rs a -> Graphite (Diagram B) s (r ': rs) a
--- consConcat f (Graphite g) = Graphite $ \fromVal getVal (vals :& valsNext) s ->
---   f $ flip map vals $ \r -> g fromVal (curryRecFunc getVal (Identity r)) valsNext r
-
-
--- -- We don't actually want to use hcat. We need to space everything
--- -- by a constant amount, and there should be some extra space on the left and right.
--- intervals :: Double -> [r] -> Graphite rs a -> Graphite (r ': rs) a
--- intervals spacing vals (Graphite g) = Graphite $ \getData ->
---   atPoints (intervalPoints spacing (length vals))
---   $ surroundWith mempty $ flip map vals $ \val -> alignB $ g (curryRecFunc getData (Identity val))
---
--- intervalsWith :: Double -> [(r,Diagram B -> Diagram B)] -> Graphite rs a -> Graphite (r ': rs) a
--- intervalsWith spacing = modifyGraphiteWith
---   (\diagrams -> atPoints (intervalPoints spacing (length diagrams)) (surroundWith mempty diagrams))
---
--- intervalsWithAxis :: Double -> (r -> String) -> [(r,Diagram B -> Diagram B)] -> Graphite rs a -> Graphite (r ': rs) a
--- intervalsWithAxis spacing toLabel vals g = modifyGraphiteWith (\diagrams ->
---   atPoints (intervalPoints spacing (length diagrams)) (surroundWith mempty diagrams)
---   ===
---   axisX spacing (map (toLabel . fst) vals)
---   ) vals g
---
--- lineGraph :: (a -> Double) -> Double -> [r] -> (Diagram B -> Diagram B) -> Graphite '[r] a
--- lineGraph f spacing vals mods = Graphite $ \g -> id
---   $ fromVertices
---   $ map (\(x,y) -> P $ V2 x y)
---   $ zip (enumFromThen 0 spacing)
---   $ flip map vals $ \val -> f (g (Identity val :& RNil))
---
--- -- The numeric argument refers to the amount of space
--- -- between each bar.
--- grouped :: Double -> [r] -> Graphite rs a -> Graphite (r ': rs) a
--- grouped innerSpacing vals (Graphite g) = Graphite $ \getData ->
---   hsep innerSpacing $ flip map vals $ \val -> alignB $ g (curryRecFunc getData (Identity val))
---
--- stacked :: [r] -> Graphite rs a -> Graphite (r ': rs) a
--- stacked = modifyGraphite (alignB . vcat)
---
--- -- stackedB :: [r] -> Graphite (r ': rs) a -> Graphite (r ': rs) a
---
--- -- stacked :: [r] -> Graphite rs a -> Graphite (r ': rs) a
--- -- stacked vals (Graphite g) = Graphite $ \getData ->
--- --   alignB $ vcat $ flip map vals $ \val -> g (curryRecFunc getData (Identity val))
---
--- stackedWith :: [(r,Diagram B -> Diagram B)] -> Graphite rs a -> Graphite (r ': rs) a
--- stackedWith vals (Graphite g) = Graphite $ \getData ->
---   alignB $ vcat $ flip map vals $ \(val,edit) -> g (curryRecFunc getData (Identity val)) & edit
---
---
--- build :: Graphite rs a -> (Rec Identity rs -> a) -> Diagram B
--- build (Graphite f) g = f g
---
--- axisX :: Double -> [String] -> Diagram B
--- axisX interval strs =
---   fromOffsets [scaleX (interval * fromIntegral (length strs)) unitX]
---   ===
---   atPoints (intervalPoints interval (length strs))
---     (surroundWith mempty $ map (\str -> alignedText 0.5 1.0 str # fontSizeL 2) strs)
---
--- axisY :: Double -> [String] -> Diagram B
--- axisY interval strs =
---   fromOffsets [scaleY (interval * fromIntegral (length strs)) unitY]
---   |||
---   atPoints (intervalPointsY interval (length strs))
---     ((mempty:) $ map (\str -> alignedText 1.0 0.5 str # fontSizeL 2) strs)
---
--- intervalPointsY :: Double -> Int -> [Point V2 Double]
--- intervalPointsY spacing n =
---   (fromOffsets $ (scaleY spacing unitY :) $
---     (replicate n (scaleY spacing unitY)))
---
--- intervalPoints :: Double -> Int -> [Point V2 Double]
--- intervalPoints spacing n =
---   (fromOffsets $ surroundWith (scaleX (spacing / 2) unitX) $
---     (replicate n (scaleX spacing unitX)))
---
--- increasingX :: Double -> [Point V2 Double]
--- increasingX inc = go 0
---   where
---   go n = scaleX n unitX : go (n + inc)
---
--- surroundWith :: a -> [a] -> [a]
--- surroundWith a as = [a] ++ as ++ [a]
---
--- -- Move this into vinyl-plus
--- -- Can we show that
--- -- (Rec f (a ': as) -> b) -> f a -> Rec f as -> b
--- -- its like curry for records
 curryRecFunc :: (Rec f (a ': as) -> b) -> f a -> Rec f as -> b
 curryRecFunc f r rs = f (r :& rs)
---
--- renderStackedBarGraph :: StackedBarGraphSettings -> [(String,[Int])] -> Html
--- renderStackedBarGraph bgs pairs = preEscapedToHtml . renderText
---   $ renderDia SVG (SVGOptions (mkWidth 400) Nothing "bargraph")
---   $ buildStackedBarGraph bgs pairs
---
--- buildStackedBarGraph :: StackedBarGraphSettings -> [(String,[Int])] -> Diagram B
--- buildStackedBarGraph bgs pairs =
---   let maxY = fromMaybe 100 $ maximumMay $ map (sum . snd) pairs
---       (yInterval, intervalCount) = chooseOptimalInterval maxY
---       yIntervalHeight = bgsHeight bgs / (fromIntegral intervalCount + 0.3)
---       scaleUnit i = fromIntegral i * yIntervalHeight / fromIntegral yInterval
---   in buildYAxis bgs yIntervalHeight intervalCount yInterval # alignBR
---      <> buildStackedContent bgs scaleUnit pairs # alignL
---
--- chooseOptimalInterval :: Int -> (Int,Int)
--- chooseOptimalInterval maxY =
---   fromMaybe (1000000,8)
---   $ fmap (\(interval',ct,_) -> (interval',ct))
---   $ minimumByMay (\(_,_,a) (_,_,b) -> compare a b)
---   $ do
---     x <- acceptableIntervals
---     y <- acceptableCounts
---     let diff' = x * y - maxY
---     guard $ diff' >= 0
---     return (x,y,diff')
---   where acceptableIntervals = [1,2,3,4,5,10,20,50,100,200,500,1000,10000,100000]
---         acceptableCounts = [4,5,6,7]
---
---
--- buildYAxis :: StackedBarGraphSettings -> Double -> Int -> Int -> Diagram B
--- buildYAxis bgs yIntervalHeight yIntervalCount i =
---   let nums = reverse $ take yIntervalCount $ map (*i) [1..]
---       -- shiftCenter x = translate (r2 (0, x))
---       ticks = foldl' (===) mempty $ flip map nums $ \n ->
---         hsep 3 [ alignedText 1 0.5 (show n) # fontSizeL (bgsAxisFontSize bgs)
---                , hrule (bgsTickSize bgs)
---                ] <> rect (bgsIntervalSpace bgs) yIntervalHeight # lw none # alignTR
---   in hcat $ map alignB $
---      [ ticks
---      , vrule (bgsHeight bgs)
---      ]
---
--- buildStackedContent :: StackedBarGraphSettings -> (Int -> Double) -> [(String,[Int])] -> Diagram B
--- buildStackedContent bgs scaleUnit pairs =
---   let pairCount = length pairs
---       pieceWidth = (bgsWidth bgs) / fromIntegral pairCount
---       barWidth = pieceWidth * 0.9
---       infiniteColors = cycle $ bgsColors bgs
---       mkPiece label vals = mempty
---         === vcat (reverse $ flip map (zip vals infiniteColors) $ \(val,color) ->
---                   rect barWidth (scaleUnit val) # fc color # lw none) # alignB
---         === hrule pieceWidth
---         === alignedText 0.5 1.0 label # fontSizeL (bgsAxisFontSize bgs)
---   in hcat (map (uncurry mkPiece) pairs) === rect (bgsAxisFontSize bgs) (bgsAxisFontSize bgs) # lw none
---
--- data StackedBarGraphSettings = StackedBarGraphSettings
---   { bgsColors        :: [Colour Double]
---   , bgsTickSize      :: Double
---   , bgsAxisFontSize  :: Double
---   , bgsHeight        :: Double
---   , bgsWidth         :: Double
---   , bgsIntervalSpace :: Double
---   }
---
--- defStackedBarGraphSettings :: StackedBarGraphSettings
--- defStackedBarGraphSettings = StackedBarGraphSettings
---   (brewerSet Set1 8)
---   5 16 200 400 40
 
