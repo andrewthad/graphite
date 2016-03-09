@@ -30,7 +30,7 @@ createYAxis segmentWidth initial step totalSteps toDouble toLabel editLine = res
     (\res -> alignedText 1.0 0.5 (toLabel res) # fontSizeL 2 ||| horizontalLine segmentWidth # editLine # alignL) 
     $ reverse $ take totalSteps $ enumFromThen initial step
 
-createXAxis :: Enum res => Double -> Double -> [res] -> (res -> String) -> (Diagram B -> Diagram B) -> Diagram B
+createXAxis :: Double -> Double -> [res] -> (res -> String) -> (Diagram B -> Diagram B) -> Diagram B
 createXAxis segmentHeight intervalWidth vals toLabel editLine = resVals
   where 
   resVals = alignTL $ hsep intervalWidth $ flip map vals $ \res -> 
