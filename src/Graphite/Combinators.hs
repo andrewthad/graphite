@@ -30,6 +30,9 @@ figure f (Graphite g) = Graphite $ \vals getRes valLists ->
 figure' :: (fig1 -> fig2) -> Graphite res fig1 vs ls -> Graphite res fig2 vs ls
 figure' f = figure (\_ _ fig1 -> f fig1)
 
+figureKnownHead :: (x -> fig1 -> fig2) -> Graphite res fig1 (x ': ks) us -> Graphite res fig2 (x ': ks) us
+figureKnownHead f = figure (\(Identity x :& _) _ fig -> f x fig)
+
 pop :: Graphite res fig (x ': vs) ls -> Graphite res [fig] vs (x ': ls)
 pop (Graphite g) = Graphite $ \vals getVal (valList :& valLists) ->
   flip map valList $ \val -> g 

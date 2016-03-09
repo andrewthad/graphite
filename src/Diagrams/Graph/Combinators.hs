@@ -1,4 +1,5 @@
 {-# LANGUAGE GADTs                #-}
+{-# LANGUAGE ScopedTypeVariables  #-}
 
 module Diagrams.Graph.Combinators where
 
@@ -8,6 +9,12 @@ import           Diagrams.Backend.SVG
 -- bar :: Double -> (res -> Double) -> res -> Diagram B
 -- bar w getHeight res = rect w h
 --   where h = getHeight res
+
+connectHorizontalInterval :: Double -> [(Diagram B,Double)] -> Diagram B
+connectHorizontalInterval intervalWidth pairs = let 
+  positionedDiagrams = flip map (zip [0,1..] pairs) $ \(i :: Int, (diagram,y)) -> 
+    (P $ V2 (fromIntegral i * intervalWidth) y, diagram)
+  in position positionedDiagrams <> fromVertices (map fst positionedDiagrams)
 
 besideText :: V2 Double -> String -> Diagram B -> Diagram B
 besideText v' text diagram = 
