@@ -7,7 +7,10 @@ module Graphite.Combinators
   , start'
   , figure
   , figure'
+  , figureKnownHead
+  , figureUnknownHead
   , pop
+  , popPlus
   ) where
 
 import Graphite.Types
