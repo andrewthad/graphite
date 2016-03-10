@@ -51,7 +51,7 @@ graphC :: Graphite Int (Diagram B) '[] '[Age,Gender]
 graphC = id
   $ Graphite.figure (\_ _ ds -> let d = alignL (hcat ds) in
       mappend d $ alignBL $ createYAxis (width d) 0 3 12 fromIntegral show
-        (lc (blend 0.3 white purple) . lw thin . dashingG [0.7,0.7] 0)
+        (lc (blend 0.3 white purple) . lw thin . dashingG [0.7,0.7] 0) id
     )
   $ Graphite.pop
 

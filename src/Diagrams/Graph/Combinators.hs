@@ -23,11 +23,12 @@ besideText v' text diagram =
         textX = (-0.5) * x + 0.5
         textY = (-0.5) * y + 0.5
 
-createYAxis :: Enum res => Double -> res -> res -> Int -> (res -> Double) -> (res -> String) -> (Diagram B -> Diagram B) -> Diagram B
-createYAxis segmentWidth initial step totalSteps toDouble toLabel editLine = resVals
+createYAxis :: Enum res => Double -> res -> res -> Int -> (res -> Double) -> (res -> String) 
+  -> (Diagram B -> Diagram B) -> (Diagram B -> Diagram B) -> Diagram B
+createYAxis segmentWidth initial step totalSteps toDouble toLabel editLine editLabel = resVals
   where 
   resVals = alignBR $ vsep (toDouble step) $ map 
-    (\res -> alignedText 1.0 0.5 (toLabel res) # fontSizeL 2 ||| horizontalLine segmentWidth # editLine # alignL) 
+    (\res -> alignedText 1.0 0.5 (toLabel res) # editLabel ||| horizontalLine segmentWidth # editLine # alignL) 
     $ reverse $ take totalSteps $ enumFromThen initial step
 
 createXAxis :: Double -> Double -> [res] -> (res -> String) -> (Diagram B -> Diagram B) -> Diagram B
